@@ -55,6 +55,7 @@ library(ggplot2) # for the plots
 
 
 ```{r echo=FALSE}
+##########################################
 # Define the function that reads files into R
 parse_file <- function(x, read, file_name) {
   # x [string] - the file
