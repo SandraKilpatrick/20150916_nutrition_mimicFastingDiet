@@ -38,7 +38,7 @@ Names of the columns and the descriptions of the columns are listed here: http:/
 ```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
 # Set directory and load libraries
 rm(list=ls())
-setwd("C:/Users/Marc/Desktop/datascience_chat/MimicFastingDiet_kate/")
+setwd("C:/Users/Marc/Desktop/datascience_chat/github/20150916_nutrition_mimicFastingDiet/")
 
 ################################################################
 # set read_files_from_website to TRUE if you want to download the data from the website
@@ -55,7 +55,6 @@ library(ggplot2) # for the plots
 
 
 ```{r echo=FALSE}
-##########################################
 # Define the function that reads files into R
 parse_file <- function(x, read, file_name) {
   # x [string] - the file
