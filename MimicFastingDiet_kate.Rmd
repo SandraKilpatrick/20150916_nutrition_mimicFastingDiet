@@ -1,0 +1,494 @@
+---
+title: "Mimic-Fasting Diet Plan"
+author: "Sandra Kilpatrick & Kate Ergle"
+date: "September 09, 2015"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    theme: default
+---
+
+# Introduction
+
+The diet is called the "Mimic Fasting Diet" -> http://www.telegraph.co.uk/news/science/science-news/11683736/Five-day-fasting-diet-slows-down-ageing-and-may-add-years-to-life.html.
+
+Apparently, fasting has a lot of benefits. In addition to losing weight, fasting can slow the aging process and  reduce the risk of some age-related diseases like cancer and diabetes.
+
+So this is the structure of the diet plan:
+Reduce calorie intake for five days each month and eat food that is comprised of:
+
+**Day 1 :: 1090 calories**
+
+* Protein - 10% of the calories
+* Fat - 56% calories
+* Carbs - 34% calories
+
+**Days 2 - 5 :: 725 calories**
+
+* Protein - 9%
+* Fat - 44%
+* Carbs - 47%
+
+Data source is the USDA Nutrition database from the USDA web site http://ndb.nal.usda.gov/ndb/doc/index.
+
+Names of the columns and the descriptions of the columns are listed here: http://www.ars.usda.gov/sp2UserFiles/Place/80400525/Data/SR27/sr27_doc.pdf
+
+
+```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
+# Set directory and load libraries
+rm(list=ls())
+setwd("C:/Users/Marc/Desktop/datascience_chat/MimicFastingDiet_kate/")
+
+################################################################
+# set read_files_from_website to TRUE if you want to download the data from the website
+# set it to FALSE if you want to load the data that was already saved on the computer
+read_files_from_website <- FALSE
+################################################################
+
+library(dplyr) # for read.delim()
+library(httr) # for the GET() function
+library(reshape2) # for the melt
+library(ggplot2) # for the plots
+
+```
+
+
+```{r echo=FALSE}
+# Define the function that reads files into R
+parse_file <- function(x, read, file_name) {
+  # x [string] - the file
+  # read {TRUE, FALSE} - if to read the file from the website or just load the saved file
+  # file_name [string] - name that should be used for the .Rdata file
+  if (read == TRUE) {
+    base_url <- "http://www.ars.usda.gov/SP2UserFiles/Place/12354500/Data/SR27/asc/"
+    resp <- GET(paste0(base_url, x))
+    
+    text <- content(resp, "text", encoding = "ISO-8859-1")
+    df <- read.delim(text = text, sep = "^", quote = "~", na.strings = c("^^", "~~"),
+               header = FALSE, stringsAsFactors = FALSE) %>% tbl_df()
+    save(df, file = paste0("data/", file_name, ".Rdata"))
+    df
+  } else {
+    #load(paste0("data/", file_name, ".Rdata"))
+    load(paste0("data/", file_name, ".Rdata"))
+    df
+  }
+}
+```
+
+# Get all the data sets
+
+## Food group
+
+This file is a support file to the Food Description file and contains a list of food groups used in SR27 and their descriptions.
+
+The whole data frame:
+
+```{r echo = FALSE}
+
+food_group <- parse_file("FD_GROUP.txt", read_files_from_website, "food_group")
+names(food_group) <- c("FdGrp_Cd","FdGrp_Desc")
+
+print.data.frame(food_group)
+```
+
+There are **`r nrow(food_group)`** entries in the food group data set.
+
+**Column descriptions**
+
+*FdGrp_Cd* : 4-digit code identifying a food group. Only the first 2 digits are currently assigned. In the future, the last 2 digits may be used.    
+*FdGrp_Desc* : Name of food group.
+
+**Class of each column**
+```{r echo=FALSE}
+lapply(food_group, class)
+```
+
+```{r echo=FALSE}
+food_group_filter_FdGrp_Cd <- food_group[food_group$FdGrp_Desc %in% c("Baby Foods", "American Indian/Alaska Native Foods", "Fast Foods", "Restaurant Foods"), ]$FdGrp_Cd
+
+```
+
+The following groups we don't need for this project:
+
+```{r echo=FALSE}
+food_group$FdGrp_Desc[food_group$FdGrp_Cd %in% food_group_filter_FdGrp_Cd]
+```
+
+So we remove them from the data set.  
+
+```{r echo=FALSE}
+food_group <- food_group[!(food_group$FdGrp_Cd %in% food_group_filter_FdGrp_Cd), ]
+```
+
+
+## Food
+
+This file contains long and short descriptions and food group designators for all food items, along with common names, manufacturer name, scientific name, percentage and description of refuse, and factors used for calculating protein and kilocalories, if applicable. Items used in the FNDDS are also identified by value of "Y" in the Survey field. 
+
+```{r echo=FALSE}
+options(width = 300)
+food_raw <- parse_file("FOOD_DES.txt", read_files_from_website, "food_raw")
+names(food_raw) <- c("NDB_No", "FdGrp_Cd", "Long_Desc", "Shrt_Desc", "ComName", "ManufacName","Survey", "Ref_desc", "Refuse", "SciName", "N_Factor", "Pro_Factor", "Fat_Factor","CHO_factor")
+
+# select only necessary columns
+food <- subset(food_raw, select = c("NDB_No", "FdGrp_Cd", "Long_Desc", "Shrt_Desc", "ManufacName"))
+#print.data.frame(head(food))
+food$ManufacName[food$ManufacName == ""] <- NA
+
+print.data.frame(head(food))
+
+```
+
+**Column descriptions**
+
+*NDB_No* : 5-digit Nutrient Databank number that uniquely identifies a food item. If this field is defined as numeric, the leading zero will be lost.    
+*FdGrp_Cd* : 4-digit code indicating food group to which a food item belongs.    
+*Long_Desc* : 200-character description of food item.    
+*Shrt_Desc* : 60-character abbreviated description of food item. Generated from the 200-character description using abbreviations in Appendix A. If short description is longer than 60 characters, additional abbreviations are made.    
+
+There are **`r format(nrow(food), big.mark=",", scientific=FALSE)`** rows in the data set.   
+
+
+**Pay attention!!!** The following **`r nrow(food) - length(unique(food$Shrt_Desc))`** entries in the  **Shrt_Desc** that are doubles:   
+```{r echo=FALSE}
+# double in Shrt_Desc: BABYFOOD,MEAT,BF,STR
+data.frame(Shrt_Desc = names(which(table(food$Shrt_Desc) > 1)))
+#print.data.frame(food[food$Shrt_Desc == "BEEF,CHUCK,UNDER BLADE CNTR STEAK,BNLESS,DENVER CUT,LN,0\" FA", ])
+
+```
+
+So it is recommended to use the long descriptions in the future. In addition they are better for the undestanding.  
+
+**Class of each column**
+```{r echo=FALSE}
+lapply(food, class)
+```
+
+Look at the foods (Long_Desc column) to understand what is there in this data set.
+
+```{r echo=FALSE}
+set.seed(1)
+print.data.frame(food[sample(1:nrow(food), 20), c("Long_Desc")])
+```
+
+### Reduce the food data set
+
+Originally there are **`r format(nrow(food), big.mark = ",", scientific = FALSE)`** rows in the food data set.    
+
+```{r echo=FALSE}
+food <- subset(food, !(FdGrp_Cd %in% food_group_filter_FdGrp_Cd))
+```
+
+Remove the foods that are from the `r length(food_group_filter_FdGrp_Cd)` food groups that are not necessary for this project and were removed earlier from the food group data set. After this procedure there are **`r format(nrow(food), big.mark = ",", scientific = FALSE)`** rows in the food data set.    
+
+
+## Nutrient definition
+
+This file is a support file to the Nutrient Data file. It provides the 3-digit nutrient code, unit of measure, INFOODS tagname, and description. 
+
+```{r echo=FALSE}
+nutrient_def_raw <- parse_file("NUTR_DEF.txt", read_files_from_website, "nutrient_def_raw")
+names(nutrient_def_raw) <- c("Nutr_No","Units","Tagname","NutrDesc","Num_Dec","SR_Order")
+
+nutrient_def <- subset(nutrient_def_raw, select = c("Nutr_No", "Units", "NutrDesc"))
+
+print.data.frame(head(nutrient_def))
+```
+
+There are **`r nrow(nutrient_def)`** entries in the nutrient definition data set.         
+
+**Column descriptions**
+
+*Nutr_No* : Unique 3-digit identifier code for a nutrient.   
+*Units* : Units of measure (mg, g and so on).    
+*NutrDesc* : Name of nutrient/food component.    
+
+**Class of each column**
+```{r echo=FALSE}
+lapply(nutrient_def, class)
+```
+
+Actually only the following nutrients are needed for this project:  
+
+```{r echo=FALSE}
+nutrient_def <- subset(nutrient_def, Nutr_No %in% c(203, 204, 205, 208))
+print.data.frame(nutrient_def)
+```
+
+
+## Nutrient 
+
+This file contains the nutrient values and information about the values, including expanded statistical information. 
+
+A nutrient is anything that nourishes a living being. We humans get our nutrients from what we eat, plants get theirs from the soil. While the best nutrients are natural, we can also get them from vitamins in a bottle.
+Organic nutrients consist of carbohydrates, fats, proteins.     
+*Source: en.wikipedia.org/wiki/Nutrient*
+
+```{r echo=FALSE}
+nutrient_raw <- parse_file("NUT_DATA.txt", read_files_from_website, "nutrient_raw")
+names(nutrient_raw) <- c("NDB_No", "Nutr_No", "Nutr_Val", "Num_Data_Pts", "Std_Err","Src_Cd", "Deriv_Cd", "Ref_NDB_No", "Add_Nutr_Mark", "Num_Studies", "Min","Max", "DF", "Low_EB", "Up_EB", "Stat_cmt", "AddMod_Date", "CC")
+
+# select only necessary columns
+nutrient <- subset(nutrient_raw, select = c("NDB_No", "Nutr_No", "Nutr_Val"))
+
+print.data.frame(head(nutrient))
+
+```
+
+There are **`r format(nrow(nutrient), big.mark=",", scientific=FALSE)`** entries in the nutrient data set.     
+
+**Column descriptions**
+
+*NDB_No* : 5-digit Nutrient Databank number that uniquely identifies a food item.           
+*Nutr_No* : Unique 3-digit identifier code for a nutrient.       
+*Nutr_Val* : Amount in 100 grams, edible portion.    
+
+There are **`r length(unique(nutrient$Nutr_No))`** unique nutrient values in the data set. Which should be the same as the number of entries in the nutrient definition data set.          
+
+**Class of each column**
+```{r echo=FALSE}
+lapply(nutrient, class)
+
+```
+
+### Reduce the size of nutrient data set
+
+```{r echo=FALSE}
+nutrient <- subset(nutrient, Nutr_No %in% nutrient_def$Nutr_No)
+```
+
+By limiting the **nutrients** data set to the only for this project necessary nutrients (Carbs, fat, protein and calories) the number of entries in the nutrient data set has been decreased to **`r format(nrow(nutrient),  big.mark=",", scientific=FALSE)`**. This smaller nutrient data set will make the join easier. 
+
+**Summary**
+```{r echo=FALSE}
+summary(nutrient)
+```
+
+We can notice that the nutrient value is very skewed. Let's look at the histogram. For better visualisation the x axis has been limited.      
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+hist(nutrient$Nutr_Val, freq = FALSE, xlim = c(0, 150), breaks = 500, xlab = "Nutrient value (for better visualisation limited to 150)", main = "Histogram of Nutrient value")
+```
+
+Even thought the maximum value is **`r format(max(nutrient$Nutr_Val), big.mark=",", scientific=FALSE)`** for the nutrient value, there are **`r round(length(nutrient$Nutr_Val[nutrient$Nutr_Val <= 40]) / nrow(nutrient), 2) * 100`%** data between **0** and **40**.    
+
+### Reshape the data set
+
+```{r echo=FALSE}
+# Make one row per food
+nutrient_cast <- dcast(nutrient, NDB_No ~ Nutr_No, value.var = "Nutr_Val")
+
+# Get the new colnames so we can change the colnames instead of being numbers from Nutr_No column to be the describing text from NutrDesc column in nutrient_def data set
+nutr_col_names <- nutrient_def[match(as.integer(names(nutrient_cast)[2:length(names(nutrient_cast))]), nutrient_def$Nutr_No), ]$NutrDesc
+
+# Make the column names shorter and clearer by removing unnecessary info and lowercasing them
+nutr_col_names <- gsub(", by difference", "", nutr_col_names, fixed = TRUE)
+nutr_col_names <- gsub("Total lipid ", "", nutr_col_names, fixed = TRUE)
+nutr_col_names <- gsub("[(,)]", "", nutr_col_names)
+nutr_col_names <- tolower(nutr_col_names)
+
+# change the colnames from numbers to words
+names(nutrient_cast)[2:length(names(nutrient_cast))] <- nutr_col_names
+```
+
+After reshaping the nutrient data set so that there would be only one row per food (per NDB_No), there are **`r nrow(nutrient_cast)`** rows in the nutrient data set which should be the same as the number of rows in the food data set.  
+
+The head of the new nutrient data set:
+
+```{r echo=FALSE}
+head(nutrient_cast)
+```
+
+
+
+## Weight
+
+This file contains the weight in grams of a number of common measures for each food item.
+
+```{r echo=FALSE}
+weight_raw <- parse_file("WEIGHT.txt", read_files_from_website, "weight_raw")
+names(weight_raw) <- c("NDB_No","Seq","Amount","Msre_Desc","Gm_Wgt","Num_Data_Pts","Std_Dev")
+
+weight <- subset(weight_raw, select = c("NDB_No", "Seq", "Amount", "Msre_Desc", "Gm_Wgt"))
+print.data.frame(head(weight))
+```
+
+There are **`r format(nrow(weight),  big.mark=",", scientific=FALSE)`** entries in the weight data set. And there are **`r format(length(unique(weight$Msre_Desc)),  big.mark=",", scientific=FALSE)`** unique entries int he measure description (Msre_Desc) column.    
+
+**Column descriptions**
+
+*NDB_No* : 5-digit Nutrient Databank number.    
+*Seq* : Sequence number.   
+*Amount* : Unit modifier (for example, 1 in "1 cup").    
+*Msre_Desc* : Description (for example, cup, diced, and 1-inch pieces).     
+*Gm_Wgt* : Gram weight. 
+
+**Class of each column**
+```{r echo=FALSE}
+lapply(weight, class)
+```
+
+#### Understand the **Seq** (sequence number) column
+
+Frequency of each sequence number:   
+
+```{r echo=FALSE}
+options(width = 200)
+table(weight$Seq)
+```
+
+Entries who have the sequence number 12:
+
+```{r echo=FALSE}
+print.data.frame(subset(weight, Seq == 12))
+```
+
+Let's choose one of the foods (specific NDB_No) and look at it in the weight data set:
+
+```{r echo=FALSE}
+print.data.frame(subset(weight, NDB_No == 11529))
+```
+
+Let's look at the description of that food in the food data set:
+
+```{r echo=FALSE}
+print.data.frame(subset(food, NDB_No == 11529))
+```
+
+**Conclusion**: NDB_No and Seq together make the ID for this weight data set.  
+
+
+
+# Join the data sets
+
+
+All the data sets together:
+
+```{r echo=FALSE}
+overall <- data.frame(data_set = c("food", "food_group", "nutrient", "weight"),
+                      number_of_rows = c(format(nrow(food), big.mark=",", scientific=FALSE), nrow(food_group), format(nrow(nutrient_cast), big.mark=",", scientific=FALSE), format(nrow(weight), big.mark=",", scientific=FALSE)))
+overall
+
+```
+
+
+```{r echo=FALSE}
+# food_nutr_df data set will have # entries the same as in the food data set
+food_nutr_df <- food %>%
+  left_join(food_group, by = c("FdGrp_Cd")) %>% # : # rows in food data set
+  left_join(nutrient_cast, by = c("NDB_No")) # : # rows in food data set
+
+# mimicfast has duplicates of foods. For each measure the food is repeated 
+mimicfast <- food_nutr_df %>%
+  left_join(weight, by = c("NDB_No"))
+```
+ 
+After joining all the data sets the final data set has **`r format(nrow(mimicfast), big.mark = ",", scientific = FALSE)`** rows.  
+
+
+**`r format(nrow(weight) - sum(!(weight$NDB_No %in% mimicfast$NDB_No)), big.mark = ",", scientific = FALSE) `** (out from the orginal **`r format(nrow(weight), big.mark = ",", scientific = FALSE)`**) entries in the weight data set are matched to the food data set. The rest of the entries were not matched because part of the food entries have been removed as they are not relevant for this project.       
+
+In addition there are more entries in the new joined data frame than in the matched weight data set because there are some foods (NDB_No) who don't have an entry in the weight data set. There are **`r nrow(mimicfast[is.na(mimicfast$Seq), ])`** such foods.        
+
+## Explore the missing foods in the weight data set
+
+Amount per food group where the missing weights come from:      
+
+```{r echo=FALSE}
+
+mimicfast_missing_weights <- mimicfast[is.na(mimicfast$Seq), ]
+
+mimicfast_missing_weights_grouped <- group_by(mimicfast_missing_weights, FdGrp_Desc) %>%
+  summarise(No_foods = length(FdGrp_Desc)) %>%
+  arrange(desc(No_foods))
+print.data.frame(mimicfast_missing_weights_grouped)
+```
+
+
+All the foods listed where weights are missing:  
+
+```{r echo=FALSE}
+print.data.frame(mimicfast_missing_weights[, c("Long_Desc")])
+
+# rest of the columns:
+# print.data.frame(mimicfast_missing_weights[, c("NDB_No", "FdGrp_Cd", "ManufacName", "protein", "fat", "carbohydrate", "energy")])
+```
+
+
+# Explore the food + nutrient data set
+
+As the data set with with added weights duplicate the food entries, we first look at the data set where only food, food_group and nutrient data sets are joined. This data set has the same number of entries as the food data set.   
+
+
+## Number of foods per food group
+
+```{r echo=FALSE}
+food_nutr_df_grouped <- group_by(food_nutr_df, FdGrp_Desc) %>%
+  summarise(No_foods = length(FdGrp_Desc)) %>%
+  arrange(desc(No_foods))
+
+print.data.frame(food_nutr_df_grouped)
+
+```
+
+
+```{r echo=FALSE, fig.height=4, fig.width=12}
+op <- par(mar = c(2, 3, 1, 3), mgp=c(2, 0.5, 0))
+barplot(food_nutr_df_grouped$No_foods, names.arg = 1:nrow(food_nutr_df_grouped), main = "Number of foods per food group")
+par(op)
+```
+
+## Nutrient distribution per nutrient
+
+```{r echo=FALSE, fig.height=4, fig.width=12, warning = FALSE, message = FALSE}
+#names(food_nutr_df)
+# "NDB_No"       "FdGrp_Cd"     "Long_Desc"    "Shrt_Desc"    "ManufacName"  "FdGrp_Desc"   "protein"      "fat"          "carbohydrate" "energy"
+
+food_nutr_df_melt <- melt(food_nutr_df[, c("NDB_No", "FdGrp_Desc", "protein", "fat", "carbohydrate", "energy")], id = c("NDB_No", "FdGrp_Desc"), value.name = "nutrient_val", variable.name = "nutrient")
+
+ggplot(data = food_nutr_df_melt, aes(food_nutr_df_melt$nutrient_val)) +
+  geom_histogram() +
+  facet_grid( ~ nutrient) +
+  ggtitle("Nutrient value distributions per nutrient") +
+  xlab("Nutrient value") +
+  ylab("Count of foods") +
+  theme(strip.text.x = element_text(size = 14))
+  #facet_grid(FdGrp_Desc ~ nutrient)
+```
+
+We can see that energy (calories) have way lower values than all the rest of the nutrients.    
+
+## Protein, fat and carbohydrate distributions per food group
+
+```{r echo=FALSE, fig.height=36, fig.width=12, warning = FALSE, message = FALSE}
+food_nutr_df_melt_without_energy <- food_nutr_df_melt[food_nutr_df_melt$nutrient != "energy", ]
+ggplot(data = food_nutr_df_melt_without_energy, aes(food_nutr_df_melt_without_energy$nutrient_val)) +
+  geom_histogram() +
+  facet_grid(FdGrp_Desc ~ nutrient) +
+  ggtitle("Nutrient value distributions per nutrient and food group") +
+  xlab("Nutrient value") +
+  ylab("Count of foods") +
+  theme(strip.text.x = element_text(size = 14))
+```
+
+
+
+## Energy (calories) distribution per food group
+
+```{r echo=FALSE, fig.height=36, fig.width=5, warning = FALSE, message = FALSE}
+food_nutr_df_melt_energy <- food_nutr_df_melt[food_nutr_df_melt$nutrient == "energy", ]
+ggplot(data = food_nutr_df_melt_energy, aes(food_nutr_df_melt_energy$nutrient_val)) +
+  geom_histogram() +
+  facet_grid(FdGrp_Desc ~ nutrient) +
+  ggtitle("Distribution of Nutrient value for energy per food group") +
+  xlab("Nutrient value") +
+  ylab("Count of foods") +
+  theme(strip.text.x = element_text(size = 14))
+```
+
+
+
+
+
